@@ -3,7 +3,7 @@ A [Tiny Imagenet Dataset](http://cs231n.stanford.edu/reports/2017/pdfs/930.pdf) 
 
 This script will download file to your disk, and store preload data on your disk.
 
-The script is a revision of [thist](https://gist.github.com/z-a-f/b862013c0dc2b540cf96a123a6766e54).
+The script is a revision of [this](https://gist.github.com/z-a-f/b862013c0dc2b540cf96a123a6766e54).
 
 ## Prerequisites
 ```
