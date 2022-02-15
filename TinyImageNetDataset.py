@@ -1,7 +1,10 @@
+# https://github.com/ljjsalt/TinyImageNetDataset
+
 import zipfile
 import imageio
 import numpy as np
 import os
+from PIL import Image
 
 from collections import defaultdict
 from torch.utils.data import Dataset
@@ -39,9 +42,11 @@ def download_and_unzip(url, root, filename=None):
     if os.path.exists(unzipped_fpath):
         print("File already unzipped")
     else:
+        print("Unzipping " + fpath)
         with zipfile.ZipFile(fpath, "r") as zip_ref:
             zip_ref.extractall("./data/")
         os.rename(fpath, unzipped_fpath)
+        print("Unzipped")
 
 
 def _add_channels(img, total_channels=3):
@@ -149,16 +154,17 @@ Members:
 
 
 class TinyImageNetDataset(Dataset):
-    def __init__(self, root_dir, mode='train', task='classification', preload=True, load_transform=None,
-                 transform=None, download=False, max_samples=None):
+    def __init__(self, root, mode='train', task='classification', preload=True, load_transform=None,
+                 transform=None, download=False, max_samples=None, output_shape=(32, 32)):
         assert(task == 'classification' or task == 'localization')
-        tinp = TinyImageNetPaths(root_dir, download)
+        tinp = TinyImageNetPaths(root, download)
         self.mode = mode
         self.label_idx = 1  # from [image, id, nid, box]
         self.loc_idx = 3  # from [image, id, nid, box]
         self.preload = preload
         self.transform = transform
         self.transform_results = dict()
+        self.output_shape = output_shape
 
         self.task = task
 
@@ -179,22 +185,22 @@ class TinyImageNetDataset(Dataset):
 
         if self.preload:
             # Try to locate preload file on disk
-            target_path = os.path.join(root_dir, 'tiny-imagenet-200')
-            label_exist = os.path.exists(os.path.join(target_path, 'label.npy'))
-            loc_exist = os.path.exists(os.path.join(target_path, 'loc.npy'))
-            img_exist = os.path.exists(os.path.join(target_path, 'img.npy'))
+            target_path = os.path.join(root, 'tiny-imagenet-200')
+            label_exist = os.path.exists(os.path.join(target_path, 'label-'+mode+'.npy'))
+            loc_exist = os.path.exists(os.path.join(target_path, 'loc-'+mode+'.npy'))
+            img_exist = os.path.exists(os.path.join(target_path, 'img-'+mode+'.npy'))
 
             if img_exist and (label_exist and task == 'classification') or (loc_exist and task == 'localization'):
                 print("Loading preloaded data from disk")
-                self.img_data = np.load(os.path.join(target_path, 'img.npy'))
+                self.img_data = np.load(os.path.join(target_path, 'img-'+mode+'.npy'), allow_pickle=True)
                 if task == 'classification':
-                    self.label_data = np.load(os.path.join(target_path, 'label.npy'))
+                    self.label_data = np.load(os.path.join(target_path, 'label-'+mode+'.npy'))
                 elif task == 'localization':
-                    self.loc_data = np.load(os.path.join(target_path, 'loc.npy'))
+                    self.loc_data = np.load(os.path.join(target_path, 'loc-'+mode+'.npy'))
             else:
                 load_desc = "Preloading {} data...".format(mode)
                 if img_exist:
-                    self.img_data = np.load(os.path.join(target_path, 'img.npy'))
+                    self.img_data = np.load(os.path.join(target_path, 'img-'+mode+'.npy'), allow_pickle=True)
                 else:
                     self.img_data = np.zeros((self.samples_num,) + self.IMAGE_SHAPE,
                                             dtype=np.float32)
@@ -206,9 +212,9 @@ class TinyImageNetDataset(Dataset):
 
                 for idx in tqdm(range(self.samples_num), desc=load_desc):
                     s = self.samples[idx]
-                    img = imageio.imread(s[0])
-                    img = _add_channels(img)
                     if not img_exist:
+                        img = imageio.imread(s[0])
+                        img = _add_channels(img)
                         self.img_data[idx] = img
                     if mode != 'test':
                         if self.task == 'classification':
@@ -216,11 +222,11 @@ class TinyImageNetDataset(Dataset):
                         elif self.task == 'localization':
                             self.loc_data[idx] = s[self.loc_idx]
 
-                np.save(os.path.join(target_path, 'img.npy'), self.img_data)
+                np.save(os.path.join(target_path, 'img-'+mode+'.npy'), self.img_data)
                 if self.task == 'classification':
-                    np.save(os.path.join(target_path, 'label.npy'), self.label_data)
+                    np.save(os.path.join(target_path, 'label-'+mode+'.npy'), self.label_data)
                 elif self.task == 'localization':
-                    np.save(os.path.join(target_path, 'loc.npy'), self.loc_data)
+                    np.save(os.path.join(target_path, 'loc-'+mode+'.npy'), self.loc_data)
                 print("Preloaded data saved to disk")
 
             if load_transform:
@@ -248,15 +254,12 @@ class TinyImageNetDataset(Dataset):
             img = imageio.imread(s[0])
             target = None if self.mode == 'test' else s[self.label_idx]
 
-        sample = {'image': img}
-
-        if self.task == 'classification':
-            sample['label'] = target
-        elif self.task == 'localization':
-            sample['loc'] = target
+        img = Image.fromarray(img.astype(np.uint8)).resize(self.output_shape)
 
         if self.transform:
-            sample = self.transform(sample)
+            img = self.transform(img)
+
+        sample = (img, target)
 
         return sample
 
